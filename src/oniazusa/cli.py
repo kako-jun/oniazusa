@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from oniazusa.filter import apply_kizuato_style
+from oniazusa.filter import PRESETS, apply_kizuato_style
 
 
 def main() -> None:
@@ -13,6 +13,15 @@ def main() -> None:
     )
     parser.add_argument("input", type=Path, help="Input image or directory")
     parser.add_argument("-o", "--output", type=Path, help="Output path")
+    parser.add_argument(
+        "-t", "--tint", default="green",
+        choices=list(PRESETS.keys()),
+        help="Color tint preset (default: green)",
+    )
+    parser.add_argument(
+        "-l", "--levels", type=int, default=16,
+        help="Number of dithering levels (default: 16)",
+    )
 
     args = parser.parse_args()
 
@@ -26,11 +35,11 @@ def main() -> None:
             sys.exit(1)
         for f in sorted(files):
             out_path = out_dir / f"{f.stem}_kizuato.png"
-            apply_kizuato_style(f, out_path)
+            apply_kizuato_style(f, out_path, tint=args.tint, levels=args.levels)
             print(f"{f.name} -> {out_path.name}")
     else:
         out_path = args.output or args.input.with_stem(f"{args.input.stem}_kizuato")
-        apply_kizuato_style(args.input, out_path)
+        apply_kizuato_style(args.input, out_path, tint=args.tint, levels=args.levels)
         print(f"{args.input.name} -> {out_path.name}")
 
 
