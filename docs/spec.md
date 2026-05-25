@@ -146,4 +146,34 @@ oniazusa photo.jpg --compare-preprocess
 
 When `--compare-preprocess` is specified, it takes precedence over `--preprocess` and `--compare`.
 
+### `--strategy`
+
+Select which three-tone strategy candidate to use when `--mode three-tone` is active.
+
+Choices: `A` (default), `B`, `C`, `D`, `E`.
+
+Ignored when `--mode kizuato` is used.
+
+| Strategy | Description |
+|---|---|
+| `A` | (default) edge-overlay on full-res, then smooth → quantize → dither in transition bands |
+| `B` | A + force outline_bgr on Canny-edge pixels after quantization |
+| `C` | A + darken grayscale field near edges before quantization (natural edge darkening) |
+| `D` | A + amplify dither band near edges (screen-tone density suggests edges) |
+| `E` | A + locally shift t1/t2 thresholds near edges (bias toward darker tone near edges) |
+
+### `--compare-strategy`
+
+Run all 5 three-tone strategy candidates (A–E) in one pass and save individual images plus a side-by-side collage.
+Only meaningful with `--mode three-tone`; ignored in kizuato mode.
+
+```bash
+oniazusa photo.jpg --mode three-tone --compare-strategy
+# outputs: photo_strategy_A.png, photo_strategy_B.png, photo_strategy_C.png,
+#          photo_strategy_D.png, photo_strategy_E.png,
+#          photo_strategy_compare.png  (horizontal collage, max 4000px wide)
+```
+
+Works in both single-file and directory (batch) modes.
+
 <!-- Update this section with the chosen strategy after visual review. -->
