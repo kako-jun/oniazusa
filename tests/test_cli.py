@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import pytest
 
-from oniazusa.filter import PRESETS
 from oniazusa.cli import main
+from oniazusa.filter import PRESETS
 
 
 def _write_image(path: Path, img: np.ndarray) -> None:
@@ -52,7 +52,8 @@ def test_cli_mode_three_tone_directory_output_names(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "out"
 
-    with patch.object(sys, "argv", ["oniazusa", str(in_dir), "-o", str(out_dir), "--mode", "three-tone"]):
+    argv = ["oniazusa", str(in_dir), "-o", str(out_dir), "--mode", "three-tone"]
+    with patch.object(sys, "argv", argv):
         main()
 
     assert (out_dir / "a_three_tone.png").exists()
@@ -64,7 +65,8 @@ def test_cli_mode_three_tone_ignores_levels(tmp_path: Path) -> None:
     input_path = tmp_path / "photo.png"
     _write_image(input_path, img)
 
-    with patch.object(sys, "argv", ["oniazusa", str(input_path), "--mode", "three-tone", "--levels", "8"]):
+    argv = ["oniazusa", str(input_path), "--mode", "three-tone", "--levels", "8"]
+    with patch.object(sys, "argv", argv):
         main()
 
     expected = tmp_path / "photo_three_tone.png"
@@ -80,3 +82,20 @@ def test_cli_invalid_mode_rejected(tmp_path: Path) -> None:
         with pytest.raises(SystemExit) as exc_info:
             main()
     assert exc_info.value.code == 2
+
+
+def test_cli_mode_kizuato_directory_output_names(tmp_path: Path) -> None:
+    # kizuato ディレクトリモードでも出力が {stem}_kizuato.png になるリグレッション確認
+    in_dir = tmp_path / "imgs"
+    in_dir.mkdir()
+    for name in ["a.png", "b.png"]:
+        img = np.full((24, 24, 3), 200, dtype=np.uint8)
+        _write_image(in_dir / name, img)
+
+    out_dir = tmp_path / "out_kizuato"
+    argv = ["oniazusa", str(in_dir), "-o", str(out_dir), "--mode", "kizuato"]
+    with patch.object(sys, "argv", argv):
+        main()
+
+    assert (out_dir / "a_kizuato.png").exists()
+    assert (out_dir / "b_kizuato.png").exists()

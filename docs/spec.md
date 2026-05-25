@@ -18,7 +18,8 @@ Supported extensions in directory mode:
 
 ## Output behavior
 
-- single file mode: defaults to `<stem>_kizuato<suffix>`
+- single file mode (`kizuato`): defaults to `<stem>_kizuato<suffix>`
+- single file mode (`three-tone`): defaults to `<stem>_three_tone<suffix>`
 - directory mode: defaults to `<input>/oniazusa_out/`
 
 ## Options

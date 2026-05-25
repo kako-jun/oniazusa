@@ -4,7 +4,13 @@ import cv2
 import numpy as np
 import pytest
 
-from oniazusa.filter import PRESETS, THREE_TONE_PRESETS, _smooth_tonal_gradient, apply_kizuato_style, apply_three_tone
+from oniazusa.filter import (
+    PRESETS,
+    THREE_TONE_PRESETS,
+    _smooth_tonal_gradient,
+    apply_kizuato_style,
+    apply_three_tone,
+)
 
 
 def _write_image(path: Path, img: np.ndarray) -> None:
@@ -163,3 +169,36 @@ def test_apply_three_tone_output_is_three_channel(tmp_path: Path) -> None:
     assert result is not None
     assert result.ndim == 3
     assert result.shape[2] == 3
+
+
+def test_apply_three_tone_pixel_dark_zone(tmp_path: Path) -> None:
+    # 中間グレー画像(gray≈0.50、t1<x<t2) → dark_bgr に揃う
+    img = np.full((64, 64, 3), 128, dtype=np.uint8)
+    input_path = tmp_path / "mid.png"
+    output_path = tmp_path / "mid_out.png"
+    _write_image(input_path, img)
+
+    apply_three_tone(input_path, output_path, tint="green")
+    result = cv2.imread(str(output_path))
+
+    assert result is not None
+    dark_bgr = THREE_TONE_PRESETS["green"][1]
+    bright_bgr = THREE_TONE_PRESETS["green"][0]
+    outline_bgr = THREE_TONE_PRESETS["green"][2]
+    # dark_bgr が最多数のピクセルを占める（前処理で一様画像は中間帯に収まる）
+    n_dark = int(np.sum(
+        (result[:, :, 0] == dark_bgr[0])
+        & (result[:, :, 1] == dark_bgr[1])
+        & (result[:, :, 2] == dark_bgr[2])
+    ))
+    n_bright = int(np.sum(
+        (result[:, :, 0] == bright_bgr[0])
+        & (result[:, :, 1] == bright_bgr[1])
+        & (result[:, :, 2] == bright_bgr[2])
+    ))
+    n_outline = int(np.sum(
+        (result[:, :, 0] == outline_bgr[0])
+        & (result[:, :, 1] == outline_bgr[1])
+        & (result[:, :, 2] == outline_bgr[2])
+    ))
+    assert n_dark >= n_bright and n_dark >= n_outline
