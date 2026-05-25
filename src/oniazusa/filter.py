@@ -27,12 +27,37 @@ PRESETS = {
 }
 
 
+def _smooth_tonal_gradient(
+    gray: np.ndarray,
+    pre_blur_sigma: float,
+    glow_strength: float,
+) -> np.ndarray:
+    """Create a smoother tonal field before ordered dithering.
+
+    The intended look is not raw-photo posterization. We first make the light and shadow flow
+    gentler, then place the visible grid-based dither on top of that smoother base.
+    """
+    smoothed = gray
+
+    if pre_blur_sigma > 0:
+        smoothed = cv2.GaussianBlur(smoothed, (0, 0), pre_blur_sigma)
+
+    if glow_strength > 0:
+        glow_sigma = max(pre_blur_sigma * 2.5, 1.0)
+        glow = cv2.GaussianBlur(smoothed, (0, 0), glow_sigma)
+        smoothed = smoothed * (1.0 - glow_strength) + glow * glow_strength
+
+    return np.clip(smoothed, 0.0, 1.0)
+
+
 def apply_kizuato_style(
     input_path: Path,
     output_path: Path,
     tint: str = "green",
     levels: int = 16,
     scale: float = 0.12,
+    pre_blur_sigma: float = 1.4,
+    glow_strength: float = 0.18,
 ) -> None:
     """Transform a photo into a Kizuato-style visual novel background.
 
@@ -75,8 +100,9 @@ def apply_kizuato_style(
     small_h = int(orig_h * scale)
     small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
 
-    # 2. Convert to grayscale
+    # 2. Convert to grayscale, then shape smoother gradients before visible grid dithering.
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    gray = _smooth_tonal_gradient(gray, pre_blur_sigma, glow_strength)
 
     # 3. Ordered dithering with Bayer matrix
     h, w = gray.shape
@@ -84,7 +110,7 @@ def apply_kizuato_style(
 
     # Dither strength varies: full in darks, fades out in highlights
     # Bright areas become smooth gradient, dark areas show screen tone
-    dither_strength = np.clip(1.0 - gray * 1.2, 0, 1)  # 0 at bright, 1 at dark
+    dither_strength = np.clip(1.0 - gray * 1.15, 0, 1)  # 0 at bright, 1 at dark
     dithered = gray + (bayer - 0.5) / levels * dither_strength
     dithered = np.clip(dithered, 0, 1)
     dithered = np.floor(dithered * levels) / levels

@@ -22,6 +22,14 @@ def main() -> None:
         "-l", "--levels", type=int, default=16,
         help="Number of dithering levels (default: 16)",
     )
+    parser.add_argument(
+        "--pre-blur", type=float, default=1.4,
+        help="Gaussian blur sigma before grid dithering (default: 1.4)",
+    )
+    parser.add_argument(
+        "--glow", type=float, default=0.18,
+        help="Glow-like smoothing blend before grid dithering, 0.0-1.0 (default: 0.18)",
+    )
 
     args = parser.parse_args()
 
@@ -35,11 +43,25 @@ def main() -> None:
             sys.exit(1)
         for f in sorted(files):
             out_path = out_dir / f"{f.stem}_kizuato.png"
-            apply_kizuato_style(f, out_path, tint=args.tint, levels=args.levels)
+            apply_kizuato_style(
+                f,
+                out_path,
+                tint=args.tint,
+                levels=args.levels,
+                pre_blur_sigma=args.pre_blur,
+                glow_strength=args.glow,
+            )
             print(f"{f.name} -> {out_path.name}")
     else:
         out_path = args.output or args.input.with_stem(f"{args.input.stem}_kizuato")
-        apply_kizuato_style(args.input, out_path, tint=args.tint, levels=args.levels)
+        apply_kizuato_style(
+            args.input,
+            out_path,
+            tint=args.tint,
+            levels=args.levels,
+            pre_blur_sigma=args.pre_blur,
+            glow_strength=args.glow,
+        )
         print(f"{args.input.name} -> {out_path.name}")
 
 
