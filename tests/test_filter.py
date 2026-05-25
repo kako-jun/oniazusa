@@ -9,11 +9,13 @@ from oniazusa.filter import (
     PREPROCESS_MODES,
     PRESETS,
     THREE_TONE_PRESETS,
+    THREE_TONE_STRATEGIES,
     _detect_edge_map,
     _preprocess,
     _smooth_tonal_gradient,
     apply_comparison,
     apply_comparison_preprocess,
+    apply_comparison_three_tone_strategies,
     apply_kizuato_style,
     apply_three_tone,
 )
@@ -598,3 +600,232 @@ def test_apply_comparison_collage_is_wider_than_individual(tmp_path: Path) -> No
     assert individual is not None
     assert collage is not None
     assert collage.shape[1] > individual.shape[1]
+
+
+# ---------------------------------------------------------------------------
+# apply_three_tone — strategy A–E
+# ---------------------------------------------------------------------------
+
+
+def _make_edge_image_for_strategy() -> np.ndarray:
+    """60x60 の左半分黒・右半分白画像（エッジが発生しやすい）。"""
+    img = np.ones((60, 60, 3), dtype=np.uint8) * 200
+    img[:, :30] = 0
+    return img
+
+
+def test_apply_three_tone_strategy_A_matches_default(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_default = tmp_path / "default.png"
+    out_a = tmp_path / "strategy_a.png"
+    apply_three_tone(input_path, out_default)
+    apply_three_tone(input_path, out_a, strategy="A")
+
+    r_default = cv2.imread(str(out_default))
+    r_a = cv2.imread(str(out_a))
+    assert r_default is not None
+    assert r_a is not None
+    assert np.array_equal(r_default, r_a)
+
+
+def test_apply_three_tone_all_strategies_produce_output(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    for s in THREE_TONE_STRATEGIES:
+        out = tmp_path / f"strategy_{s}.png"
+        apply_three_tone(input_path, out, strategy=s)
+        assert out.exists(), f"strategy={s!r} did not produce output"
+
+
+def test_apply_three_tone_all_strategies_preserve_dimensions(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    for s in THREE_TONE_STRATEGIES:
+        out = tmp_path / f"strategy_{s}.png"
+        apply_three_tone(input_path, out, strategy=s)
+        result = cv2.imread(str(out))
+        assert result is not None
+        assert result.shape == img.shape, f"strategy={s!r} changed dimensions"
+
+
+def test_apply_comparison_three_tone_strategies_returns_six_paths(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    assert len(paths) == 6
+
+
+def test_apply_comparison_three_tone_strategies_all_files_exist(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    for p in paths:
+        assert p.exists(), f"{p} does not exist"
+
+
+def test_apply_comparison_three_tone_strategies_individual_names_contain_strategy_letter(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    individual = paths[:5]
+    for s, path in zip(THREE_TONE_STRATEGIES, individual):
+        assert s in path.name, f"strategy letter {s!r} not in {path.name}"
+
+
+def test_apply_comparison_three_tone_strategies_collage_name_suffix(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    collage = paths[-1]
+    assert collage.name.endswith("_strategy_compare.png")
+
+
+def test_apply_comparison_three_tone_strategies_collage_width_le_4000(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    collage = cv2.imread(str(paths[-1]))
+    assert collage is not None
+    assert collage.shape[1] <= 4000
+
+
+def test_apply_comparison_three_tone_strategies_creates_output_dir_automatically(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "nonexistent" / "nested"
+    assert not out_dir.exists()
+    apply_comparison_three_tone_strategies(input_path, out_dir)
+    assert out_dir.exists()
+
+
+def test_three_tone_strategies_constant_contains_five_elements() -> None:
+    assert len(THREE_TONE_STRATEGIES) == 5
+
+
+def test_apply_three_tone_strategy_default_is_A(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_default = tmp_path / "default.png"
+    out_a = tmp_path / "a.png"
+    apply_three_tone(input_path, out_default)
+    apply_three_tone(input_path, out_a, strategy="A")
+
+    r_default = cv2.imread(str(out_default))
+    r_a = cv2.imread(str(out_a))
+    assert r_default is not None
+    assert r_a is not None
+    assert np.array_equal(r_default, r_a)
+
+
+def test_apply_three_tone_invalid_strategy_raises_value_error(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    with pytest.raises(ValueError):
+        apply_three_tone(input_path, tmp_path / "out.png", strategy="F")
+
+
+def test_apply_three_tone_empty_strategy_raises_value_error(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    with pytest.raises(ValueError):
+        apply_three_tone(input_path, tmp_path / "out.png", strategy="")
+
+
+def test_apply_three_tone_lowercase_strategy_raises_value_error(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    with pytest.raises(ValueError):
+        apply_three_tone(input_path, tmp_path / "out.png", strategy="a")
+
+
+def test_apply_three_tone_strategy_B_forces_outline_on_edge_pixels(tmp_path: Path) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out = tmp_path / "strategy_b.png"
+    apply_three_tone(input_path, out, strategy="B")
+    result = cv2.imread(str(out))
+    assert result is not None
+    assert result.shape == img.shape
+
+
+def test_apply_three_tone_strategy_D_versus_A_output_differs(tmp_path: Path) -> None:
+    # D はエッジ近傍で dither band を拡大する。
+    # 中間輝度の広い画像でエッジが閾値付近に当たると差が現れやすい。
+    # 500x500 で中間グレー + エッジを持つ格子パターン
+    img = np.full((500, 500, 3), 115, dtype=np.uint8)  # t1=0.45 付近のグレー
+    # 格子線（明暗交互でエッジを発生させる）
+    for i in range(0, 500, 40):
+        img[i : i + 4, :] = 200  # 明るい横線 → エッジ発生
+        img[:, i : i + 4] = 200  # 明るい縦線 → エッジ発生
+
+    input_path = tmp_path / "grid.png"
+    _write_image(input_path, img)
+
+    out_a = tmp_path / "a.png"
+    out_d = tmp_path / "d.png"
+    apply_three_tone(input_path, out_a, strategy="A")
+    apply_three_tone(input_path, out_d, strategy="D")
+
+    r_a = cv2.imread(str(out_a))
+    r_d = cv2.imread(str(out_d))
+    assert r_a is not None
+    assert r_d is not None
+    assert not np.array_equal(r_a, r_d)
+
+
+def test_apply_comparison_three_tone_strategies_odd_size_image_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    img = np.zeros((47, 31, 3), dtype=np.uint8)
+    img[:, :] = (60, 120, 220)
+    input_path = tmp_path / "odd.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_three_tone_strategies(input_path, tmp_path / "out")
+    assert len(paths) == 6
+
+
+def test_apply_comparison_three_tone_strategies_overwrites_existing_output(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image_for_strategy()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    apply_comparison_three_tone_strategies(input_path, out_dir)
+    # 2回目も crash しない
+    apply_comparison_three_tone_strategies(input_path, out_dir)
