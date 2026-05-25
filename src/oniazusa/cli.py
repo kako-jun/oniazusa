@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from oniazusa.filter import PRESETS, apply_kizuato_style
+from oniazusa.filter import PRESETS, apply_kizuato_style, apply_three_tone
 
 
 def main() -> None:
@@ -14,21 +14,36 @@ def main() -> None:
     parser.add_argument("input", type=Path, help="Input image or directory")
     parser.add_argument("-o", "--output", type=Path, help="Output path")
     parser.add_argument(
-        "-t", "--tint", default="green",
+        "-t",
+        "--tint",
+        default="green",
         choices=list(PRESETS.keys()),
         help="Color tint preset (default: green)",
     )
     parser.add_argument(
-        "-l", "--levels", type=int, default=16,
+        "-l",
+        "--levels",
+        type=int,
+        default=16,
         help="Number of dithering levels (default: 16)",
     )
     parser.add_argument(
-        "--pre-blur", type=float, default=1.4,
+        "--pre-blur",
+        type=float,
+        default=1.4,
         help="Gaussian blur sigma before grid dithering (default: 1.4)",
     )
     parser.add_argument(
-        "--glow", type=float, default=0.18,
+        "--glow",
+        type=float,
+        default=0.18,
         help="Glow-like smoothing blend before grid dithering, 0.0-1.0 (default: 0.18)",
+    )
+    parser.add_argument(
+        "--mode",
+        default="kizuato",
+        choices=["kizuato", "three-tone"],
+        help="Processing mode (default: kizuato)",
     )
 
     args = parser.parse_args()
@@ -42,26 +57,46 @@ def main() -> None:
             print(f"No image files found in {args.input}", file=sys.stderr)
             sys.exit(1)
         for f in sorted(files):
-            out_path = out_dir / f"{f.stem}_kizuato.png"
+            if args.mode == "three-tone":
+                out_path = out_dir / f"{f.stem}_three_tone.png"
+                apply_three_tone(
+                    f,
+                    out_path,
+                    tint=args.tint,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                )
+            else:
+                out_path = out_dir / f"{f.stem}_kizuato.png"
+                apply_kizuato_style(
+                    f,
+                    out_path,
+                    tint=args.tint,
+                    levels=args.levels,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                )
+            print(f"{f.name} -> {out_path.name}")
+    else:
+        if args.mode == "three-tone":
+            out_path = args.output or args.input.with_stem(f"{args.input.stem}_three_tone")
+            apply_three_tone(
+                args.input,
+                out_path,
+                tint=args.tint,
+                pre_blur_sigma=args.pre_blur,
+                glow_strength=args.glow,
+            )
+        else:
+            out_path = args.output or args.input.with_stem(f"{args.input.stem}_kizuato")
             apply_kizuato_style(
-                f,
+                args.input,
                 out_path,
                 tint=args.tint,
                 levels=args.levels,
                 pre_blur_sigma=args.pre_blur,
                 glow_strength=args.glow,
             )
-            print(f"{f.name} -> {out_path.name}")
-    else:
-        out_path = args.output or args.input.with_stem(f"{args.input.stem}_kizuato")
-        apply_kizuato_style(
-            args.input,
-            out_path,
-            tint=args.tint,
-            levels=args.levels,
-            pre_blur_sigma=args.pre_blur,
-            glow_strength=args.glow,
-        )
         print(f"{args.input.name} -> {out_path.name}")
 
 
