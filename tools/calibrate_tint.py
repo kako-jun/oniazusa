@@ -141,6 +141,11 @@ def _build_collage(ref_path: Path, out_dir: Path) -> Path:
     orig = cv2.imread(str(ref_path))
     styled = cv2.imread(str(styled_path))
 
+    if orig is None:
+        raise RuntimeError(f"Failed to load reference image: {ref_path}")
+    if styled is None:
+        raise RuntimeError(f"Failed to load styled image: {styled_path}")
+
     # Resize styled to match original height if needed
     if orig.shape[0] != styled.shape[0]:
         scale = orig.shape[0] / styled.shape[0]
