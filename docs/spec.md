@@ -171,7 +171,7 @@ Only meaningful with `--mode three-tone`; ignored in kizuato mode.
 oniazusa photo.jpg --mode three-tone --compare-strategy
 # outputs: photo_strategy_A.png, photo_strategy_B.png, photo_strategy_C.png,
 #          photo_strategy_D.png, photo_strategy_E.png,
-#          photo_strategy_compare.png  (horizontal collage, max 4000px wide)
+#          {stem}_strategy_compare.png  (horizontal collage, max 4000px wide)
 ```
 
 Works in both single-file and directory (batch) modes.

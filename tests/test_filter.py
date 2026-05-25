@@ -725,23 +725,6 @@ def test_three_tone_strategies_constant_contains_five_elements() -> None:
     assert len(THREE_TONE_STRATEGIES) == 5
 
 
-def test_apply_three_tone_strategy_default_is_A(tmp_path: Path) -> None:
-    img = _make_edge_image_for_strategy()
-    input_path = tmp_path / "input.png"
-    _write_image(input_path, img)
-
-    out_default = tmp_path / "default.png"
-    out_a = tmp_path / "a.png"
-    apply_three_tone(input_path, out_default)
-    apply_three_tone(input_path, out_a, strategy="A")
-
-    r_default = cv2.imread(str(out_default))
-    r_a = cv2.imread(str(out_a))
-    assert r_default is not None
-    assert r_a is not None
-    assert np.array_equal(r_default, r_a)
-
-
 def test_apply_three_tone_invalid_strategy_raises_value_error(tmp_path: Path) -> None:
     img = _make_edge_image_for_strategy()
     input_path = tmp_path / "input.png"
@@ -779,6 +762,48 @@ def test_apply_three_tone_strategy_B_forces_outline_on_edge_pixels(tmp_path: Pat
     result = cv2.imread(str(out))
     assert result is not None
     assert result.shape == img.shape
+
+
+def test_apply_three_tone_strategy_C_versus_A_output_differs(tmp_path: Path) -> None:
+    img = np.full((500, 500, 3), 115, dtype=np.uint8)
+    for i in range(0, 500, 40):
+        img[i : i + 4, :] = 200
+        img[:, i : i + 4] = 200
+
+    input_path = tmp_path / "grid.png"
+    _write_image(input_path, img)
+
+    out_a = tmp_path / "a.png"
+    out_c = tmp_path / "c.png"
+    apply_three_tone(input_path, out_a, strategy="A")
+    apply_three_tone(input_path, out_c, strategy="C")
+
+    r_a = cv2.imread(str(out_a))
+    r_c = cv2.imread(str(out_c))
+    assert r_a is not None
+    assert r_c is not None
+    assert not np.array_equal(r_a, r_c)
+
+
+def test_apply_three_tone_strategy_E_versus_A_output_differs(tmp_path: Path) -> None:
+    img = np.full((500, 500, 3), 115, dtype=np.uint8)
+    for i in range(0, 500, 40):
+        img[i : i + 4, :] = 200
+        img[:, i : i + 4] = 200
+
+    input_path = tmp_path / "grid.png"
+    _write_image(input_path, img)
+
+    out_a = tmp_path / "a.png"
+    out_e = tmp_path / "e.png"
+    apply_three_tone(input_path, out_a, strategy="A")
+    apply_three_tone(input_path, out_e, strategy="E")
+
+    r_a = cv2.imread(str(out_a))
+    r_e = cv2.imread(str(out_e))
+    assert r_a is not None
+    assert r_e is not None
+    assert not np.array_equal(r_a, r_e)
 
 
 def test_apply_three_tone_strategy_D_versus_A_output_differs(tmp_path: Path) -> None:

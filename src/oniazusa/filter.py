@@ -404,23 +404,15 @@ def apply_three_tone(
 
     edge_map = _detect_edge_map(img)
 
-    if strategy == "A":
+    if strategy in ("A", "B"):
         # A (baseline): edge-overlay on full-res
-        edge_mask = edge_map * 0.5
-        img_f = img.astype(np.float32)
-        for c in range(3):
-            img_f[:, :, c] *= 1.0 - edge_mask
-        img = img_f.astype(np.uint8)
-    elif strategy == "B":
         # B: same edge-overlay as A; outline_bgr forced on edge pixels post-quantization
         edge_mask = edge_map * 0.5
         img_f = img.astype(np.float32)
         for c in range(3):
             img_f[:, :, c] *= 1.0 - edge_mask
         img = img_f.astype(np.uint8)
-    elif strategy in ("C", "D", "E"):
-        # C/D/E: no full-res edge overlay; edge effect applied differently below
-        pass
+    # C/D/E: no full-res edge overlay; edge effect applied differently below
 
     img = cv2.GaussianBlur(img, (3, 3), 0.8)
 
@@ -543,6 +535,9 @@ def apply_comparison_three_tone_strategies(
         )
         individual_paths.append(out_path)
         img = cv2.imread(str(out_path))
+        if img is None:
+            msg = f"Failed to read generated image: {out_path}"
+            raise RuntimeError(msg)
         images.append(img)
 
     # Build collage: align all images to the same height then hstack
