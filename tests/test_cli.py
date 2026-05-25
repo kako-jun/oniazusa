@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from oniazusa.cli import main
-from oniazusa.filter import PREPROCESS_MODES, PRESETS
+from oniazusa.filter import PRESETS
 
 
 def _write_image(path: Path, img: np.ndarray) -> None:

@@ -63,10 +63,11 @@ def _preprocess(img: np.ndarray, mode: str) -> np.ndarray:
         l_ch = clahe.apply(l_ch)
         lab = cv2.merge([l_ch, a_ch, b_ch])
         img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-    else:
-        # none: default bilateral x3
+    elif mode == "none":
         for _ in range(3):
             img = cv2.bilateralFilter(img, 9, 75, 75)
+    else:
+        raise ValueError(f"Unknown preprocess mode: {mode!r}. Choose from {PREPROCESS_MODES}")
     return img
 
 
@@ -284,6 +285,8 @@ def apply_comparison_preprocess(
     glow_strength: float = 0.18,
 ) -> list[Path]:
     """Run all 4 preprocess modes and save individual images plus a collage.
+
+    # Always uses kizuato mode; outline_strategy is fixed to edge-overlay.
 
     Args:
         input_path: Source image path.

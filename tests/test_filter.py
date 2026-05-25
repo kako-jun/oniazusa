@@ -415,12 +415,11 @@ def test_preprocess_does_not_mutate_input_array() -> None:
     assert np.array_equal(img, original)
 
 
-def test_preprocess_unknown_mode_does_not_crash() -> None:
-    # 仕様: "unknown" は else 節（none 相当）にフォールバックし crash しない
+def test_preprocess_unknown_mode_raises_value_error() -> None:
+    # 仕様: "unknown" のような無効モードは ValueError を raise する
     img = _make_bgr_image()
-    result = _preprocess(img, "unknown")
-    assert result.shape == img.shape
-    assert result.dtype == np.uint8
+    with pytest.raises(ValueError, match="Unknown preprocess mode"):
+        _preprocess(img, "unknown")
 
 
 def test_preprocess_illustration_uint8_range() -> None:

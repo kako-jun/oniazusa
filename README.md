@@ -75,7 +75,7 @@ other tools to depend on it.
 
 - foreground and background are processed uniformly
 - tint presets are still rough and not yet matched against real reference scenes
-- there is no `--preprocess` switch yet for alternate source stylization paths
+- `--preprocess` supports `none` (default), `denoise`, `flatten`, `illustration` modes; use `--compare-preprocess` to compare all modes side by side
 
 ## Docs
 
