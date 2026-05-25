@@ -317,7 +317,11 @@ def test_cli_compare_strategy_calls_apply_comparison_three_tone_strategies(
     with patch(
         "oniazusa.cli.apply_comparison_three_tone_strategies", return_value=fake_paths
     ) as mock_cst:
-        argv = ["oniazusa", str(input_path), "--mode", "three-tone", "--compare-strategy", "-o", str(out_dir)]
+        argv = [
+            "oniazusa", str(input_path),
+            "--mode", "three-tone", "--compare-strategy",
+            "-o", str(out_dir),
+        ]
         with patch.object(sys, "argv", argv):
             main()
 
