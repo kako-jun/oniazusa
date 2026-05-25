@@ -99,3 +99,73 @@ def test_cli_mode_kizuato_directory_output_names(tmp_path: Path) -> None:
 
     assert (out_dir / "a_kizuato.png").exists()
     assert (out_dir / "b_kizuato.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# outline_strategy / compare CLI tests
+# ---------------------------------------------------------------------------
+
+
+def _make_edge_image() -> np.ndarray:
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    img[20:80, 20:80] = 255
+    return img
+
+
+def test_cli_outline_strategy_passed_to_apply(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    with patch("oniazusa.cli.apply_kizuato_style") as mock_apply:
+        argv = ["oniazusa", str(input_path), "--outline-strategy", "edge-bias"]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_apply.assert_called_once()
+    _, kwargs = mock_apply.call_args
+    assert kwargs.get("outline_strategy") == "edge-bias"
+
+
+def test_cli_compare_calls_apply_comparison(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with patch("oniazusa.cli.apply_comparison", return_value=fake_paths) as mock_cmp:
+        argv = ["oniazusa", str(input_path), "--compare", "-o", str(out_dir)]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cmp.assert_called_once()
+
+
+def test_cli_compare_overrides_outline_strategy(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with (
+        patch("oniazusa.cli.apply_comparison", return_value=fake_paths) as mock_cmp,
+        patch("oniazusa.cli.apply_kizuato_style") as mock_kiz,
+    ):
+        argv = [
+            "oniazusa",
+            str(input_path),
+            "--compare",
+            "--outline-strategy",
+            "dither-density",
+            "-o",
+            str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cmp.assert_called_once()
+    mock_kiz.assert_not_called()
