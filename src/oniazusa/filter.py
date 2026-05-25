@@ -28,6 +28,7 @@ BAYER_8X8 = (
 
 # Preset tint colors (BGR) - very light, like tinted white paper
 PRESETS = {
+    # TODO: update after running calibrate_tint.py
     "green": (210, 240, 200),  # barely-green white paper
     "yellow": (200, 235, 245),  # barely-yellow white paper
     "blue": (240, 215, 195),  # barely-blue white paper
@@ -125,9 +126,9 @@ def apply_kizuato_style(
 
     # Downscale edge map for strategies that operate at low-res.
     # Always computed to avoid possibly-unbound reference; zero-cost for edge-overlay.
-    edge_map_small = cv2.resize(
-        edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA
-    ).astype(np.float32)
+    edge_map_small = cv2.resize(edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA).astype(
+        np.float32
+    )
 
     # 3. Convert to grayscale, then shape smoother gradients before visible grid dithering.
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
@@ -247,6 +248,7 @@ THREE_TONE_PRESETS: dict[
     tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]],
 ] = {
     #               bright_bgr        dark_bgr          outline_bgr
+    # TODO: update after running calibrate_tint.py
     "green": ((210, 240, 200), (130, 180, 120), (40, 70, 30)),
     "yellow": ((200, 235, 245), (130, 170, 160), (50, 80, 40)),
     "blue": ((240, 215, 195), (140, 160, 200), (40, 60, 120)),
