@@ -282,3 +282,123 @@ def test_cli_preprocess_directory_mode_applies_to_all_files(tmp_path: Path) -> N
             main()
 
     assert mock_cp.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# --strategy / --compare-strategy CLI tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_strategy_passed_to_apply_three_tone(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    with patch("oniazusa.cli.apply_three_tone") as mock_apply:
+        argv = ["oniazusa", str(input_path), "--mode", "three-tone", "--strategy", "B"]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_apply.assert_called_once()
+    _, kwargs = mock_apply.call_args
+    assert kwargs.get("strategy") == "B"
+
+
+def test_cli_compare_strategy_calls_apply_comparison_three_tone_strategies(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(6)]
+
+    with patch(
+        "oniazusa.cli.apply_comparison_three_tone_strategies", return_value=fake_paths
+    ) as mock_cst:
+        argv = [
+            "oniazusa", str(input_path),
+            "--mode", "three-tone", "--compare-strategy",
+            "-o", str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cst.assert_called_once()
+
+
+def test_cli_strategy_default_is_A_when_not_specified(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    with patch("oniazusa.cli.apply_three_tone") as mock_apply:
+        argv = ["oniazusa", str(input_path), "--mode", "three-tone"]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_apply.assert_called_once()
+    _, kwargs = mock_apply.call_args
+    assert kwargs.get("strategy") == "A"
+
+
+def test_cli_compare_strategy_takes_precedence_over_strategy_single_file(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(6)]
+
+    with (
+        patch(
+            "oniazusa.cli.apply_comparison_three_tone_strategies", return_value=fake_paths
+        ) as mock_cst,
+        patch("oniazusa.cli.apply_three_tone") as mock_single,
+    ):
+        argv = [
+            "oniazusa",
+            str(input_path),
+            "--mode", "three-tone",
+            "--compare-strategy",
+            "--strategy", "B",
+            "-o", str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cst.assert_called_once()
+    mock_single.assert_not_called()
+
+
+def test_cli_compare_strategy_with_mode_kizuato_does_not_call_strategy_comparison(
+    tmp_path: Path,
+) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(6)]
+
+    with (
+        patch(
+            "oniazusa.cli.apply_comparison_three_tone_strategies", return_value=fake_paths
+        ) as mock_cst,
+        patch("oniazusa.cli.apply_kizuato_style") as mock_kiz,
+    ):
+        argv = [
+            "oniazusa",
+            str(input_path),
+            "--mode", "kizuato",
+            "--compare-strategy",
+            "-o", str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cst.assert_not_called()
+    mock_kiz.assert_called_once()

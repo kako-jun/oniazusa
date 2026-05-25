@@ -44,6 +44,18 @@ This is why the repo keeps outline handling as a comparison problem, not a solve
 When using `input/kizuato`, ignore foreground character stand sprites.
 Evaluate the background only, with special attention to left-edge and right-edge atmosphere.
 
+## Strategy candidates (A–E)
+
+A brief description of each candidate implemented in `apply_three_tone(strategy=...)`:
+
+- **A** (baseline): edge-overlay on full-res, then smooth → quantize → dither in transition bands
+- **B**: A + force outline_bgr on Canny-edge pixels after quantization
+- **C**: A + darken grayscale field near edges before quantization (natural edge darkening)
+- **D**: A + amplify dither band near edges (screen-tone density suggests edges)
+- **E**: A + locally shift t1/t2 thresholds near edges (bias toward darker tone near edges)
+
+Comparison script: `tools/compare_candidates.py` → `output/candidate-compare/`
+
 ## Additional real-world input set
 
 The committed night backgrounds from `ear-sky/public/bg/` are useful as a second test family.

@@ -8,8 +8,10 @@ from oniazusa.filter import (
     OUTLINE_STRATEGIES,
     PREPROCESS_MODES,
     PRESETS,
+    THREE_TONE_STRATEGIES,
     apply_comparison,
     apply_comparison_preprocess,
+    apply_comparison_three_tone_strategies,
     apply_kizuato_style,
     apply_three_tone,
 )
@@ -78,6 +80,19 @@ def main() -> None:
         dest="compare_preprocess",
         help="Run all 4 preprocess modes and output individual images plus a collage",
     )
+    parser.add_argument(
+        "--strategy",
+        default="A",
+        choices=THREE_TONE_STRATEGIES,
+        help="Three-tone strategy candidate A–E (default: A, three-tone mode only)",
+    )
+    parser.add_argument(
+        "--compare-strategy",
+        action="store_true",
+        dest="compare_strategy",
+        help="Run all 5 three-tone strategy candidates and output individual images plus a collage"
+        " (three-tone mode only)",
+    )
 
     args = parser.parse_args()
 
@@ -101,6 +116,17 @@ def main() -> None:
                 )
                 for p in paths:
                     print(f"{f.name} -> {p.name}")
+            elif args.mode == "three-tone" and args.compare_strategy:
+                paths = apply_comparison_three_tone_strategies(
+                    f,
+                    out_dir,
+                    tint=args.tint,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                    preprocess=args.preprocess,
+                )
+                for p in paths:
+                    print(f"{f.name} -> {p.name}")
             elif args.mode == "three-tone":
                 out_path = out_dir / f"{f.stem}_three_tone.png"
                 apply_three_tone(
@@ -110,6 +136,7 @@ def main() -> None:
                     pre_blur_sigma=args.pre_blur,
                     glow_strength=args.glow,
                     preprocess=args.preprocess,
+                    strategy=args.strategy,
                 )
                 print(f"{f.name} -> {out_path.name}")
             elif args.compare:
@@ -150,16 +177,30 @@ def main() -> None:
             for p in paths:
                 print(f"{args.input.name} -> {p.name}")
         elif args.mode == "three-tone":
-            out_path = args.output or args.input.with_stem(f"{args.input.stem}_three_tone")
-            apply_three_tone(
-                args.input,
-                out_path,
-                tint=args.tint,
-                pre_blur_sigma=args.pre_blur,
-                glow_strength=args.glow,
-                preprocess=args.preprocess,
-            )
-            print(f"{args.input.name} -> {out_path.name}")
+            if args.compare_strategy:
+                out_dir = args.output or args.input.parent / "oniazusa_out"
+                paths = apply_comparison_three_tone_strategies(
+                    args.input,
+                    out_dir,
+                    tint=args.tint,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                    preprocess=args.preprocess,
+                )
+                for p in paths:
+                    print(f"{args.input.name} -> {p.name}")
+            else:
+                out_path = args.output or args.input.with_stem(f"{args.input.stem}_three_tone")
+                apply_three_tone(
+                    args.input,
+                    out_path,
+                    tint=args.tint,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                    preprocess=args.preprocess,
+                    strategy=args.strategy,
+                )
+                print(f"{args.input.name} -> {out_path.name}")
         elif args.compare:
             out_dir = args.output or args.input.parent / "oniazusa_out"
             paths = apply_comparison(
