@@ -286,7 +286,7 @@ def apply_comparison_preprocess(
 ) -> list[Path]:
     """Run all 4 preprocess modes and save individual images plus a collage.
 
-    # Always uses kizuato mode; outline_strategy is fixed to edge-overlay.
+    Note: Always uses kizuato mode; outline_strategy is fixed to edge-overlay.
 
     Args:
         input_path: Source image path.
