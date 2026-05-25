@@ -300,10 +300,13 @@ def test_apply_kizuato_style_strategies_differ_from_each_other(tmp_path: Path) -
         results[strategy] = cv2.imread(str(out))
 
     strategies = list(results.keys())
-    all_same = all(
-        np.array_equal(results[strategies[0]], results[s]) for s in strategies[1:]
-    )
-    assert not all_same, "All strategies produced identical output"
+    # Pairwise: every pair of strategies must produce different output
+    from itertools import combinations
+
+    for s1, s2 in combinations(strategies, 2):
+        assert not np.array_equal(results[s1], results[s2]), (
+            f"Strategies '{s1}' and '{s2}' produced identical output"
+        )
 
 
 # ---------------------------------------------------------------------------

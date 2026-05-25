@@ -104,7 +104,7 @@ def apply_kizuato_style(
     for _ in range(3):
         img = cv2.bilateralFilter(img, 9, 75, 75)
 
-    # Detect edges (full-res) for strategies that need it
+    # Detect edges (full-res) for all strategies
     edge_map = _detect_edge_map(img)
 
     if outline_strategy == "edge-overlay":
@@ -123,13 +123,13 @@ def apply_kizuato_style(
     small_h = int(orig_h * scale)
     small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
 
-    # Downscale edge map for strategies that operate at low-res
-    if outline_strategy != "edge-overlay":
-        edge_map_small = cv2.resize(
-            edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA
-        ).astype(np.float32)
+    # Downscale edge map for strategies that operate at low-res.
+    # Always computed to avoid possibly-unbound reference; zero-cost for edge-overlay.
+    edge_map_small = cv2.resize(
+        edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA
+    ).astype(np.float32)
 
-    # 2. Convert to grayscale, then shape smoother gradients before visible grid dithering.
+    # 3. Convert to grayscale, then shape smoother gradients before visible grid dithering.
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
     gray = _smooth_tonal_gradient(gray, pre_blur_sigma, glow_strength)
 
@@ -139,7 +139,7 @@ def apply_kizuato_style(
     if outline_strategy == "threshold-shift":
         gray = np.clip(gray - edge_map_small * 0.15, 0, 1)
 
-    # 3. Ordered dithering with Bayer matrix
+    # 4. Ordered dithering with Bayer matrix
     h, w = gray.shape
     bayer = np.tile(BAYER_8X8, (h // 8 + 1, w // 8 + 1))[:h, :w]
 
@@ -220,8 +220,8 @@ def apply_comparison(
     for img in images:
         h, w = img.shape[:2]
         if h != target_h:
-            scale = target_h / h
-            img = cv2.resize(img, (int(w * scale), target_h), interpolation=cv2.INTER_AREA)
+            row_scale = target_h / h
+            img = cv2.resize(img, (int(w * row_scale), target_h), interpolation=cv2.INTER_AREA)
         resized.append(img)
 
     collage = np.hstack(resized)
@@ -230,8 +230,10 @@ def apply_comparison(
     max_w = 4000
     col_h, col_w = collage.shape[:2]
     if col_w > max_w:
-        scale = max_w / col_w
-        collage = cv2.resize(collage, (max_w, int(col_h * scale)), interpolation=cv2.INTER_AREA)
+        collage_scale = max_w / col_w
+        collage = cv2.resize(
+            collage, (max_w, int(col_h * collage_scale)), interpolation=cv2.INTER_AREA
+        )
 
     collage_path = output_dir / f"{stem}_compare.png"
     cv2.imwrite(str(collage_path), collage)
@@ -284,11 +286,8 @@ def apply_three_tone(
     for _ in range(3):
         img = cv2.bilateralFilter(img, 9, 75, 75)
 
-    gray_for_edges = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray_for_edges = cv2.GaussianBlur(gray_for_edges, (5, 5), 1.0)
-    edges = cv2.Canny(gray_for_edges, 30, 100)
-
-    edge_mask = (edges > 0).astype(np.float32) * 0.5
+    edge_map = _detect_edge_map(img)
+    edge_mask = edge_map * 0.5
     img_f = img.astype(np.float32)
     for c in range(3):
         img_f[:, :, c] *= 1.0 - edge_mask
