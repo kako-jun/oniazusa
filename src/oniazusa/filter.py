@@ -5,6 +5,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+OUTLINE_STRATEGIES = ["edge-overlay", "edge-bias", "dither-density", "threshold-shift"]
+
 # 8x8 Bayer matrix for ordered dithering (screen tone pattern)
 BAYER_8X8 = (
     np.array(
@@ -31,6 +33,21 @@ PRESETS = {
     "blue": (240, 215, 195),  # barely-blue white paper
     "purple": (100, 60, 80),  # night purple (the only dark one)
 }
+
+
+def _detect_edge_map(img: np.ndarray) -> np.ndarray:
+    """Detect edges and return a float32 mask in [0.0, 1.0].
+
+    Args:
+        img: BGR uint8 image.
+
+    Returns:
+        float32 array of the same H×W, 0.0=non-edge, 1.0=edge.
+    """
+    gray_for_edges = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray_for_edges = cv2.GaussianBlur(gray_for_edges, (5, 5), 1.0)
+    edges = cv2.Canny(gray_for_edges, 30, 100)
+    return (edges > 0).astype(np.float32)
 
 
 def _smooth_tonal_gradient(
@@ -64,6 +81,7 @@ def apply_kizuato_style(
     scale: float = 0.12,
     pre_blur_sigma: float = 1.4,
     glow_strength: float = 0.18,
+    outline_strategy: str = "edge-overlay",
 ) -> None:
     """Transform a photo into a Kizuato-style visual novel background.
 
@@ -86,17 +104,16 @@ def apply_kizuato_style(
     for _ in range(3):
         img = cv2.bilateralFilter(img, 9, 75, 75)
 
-    #    b. Edge detection for clean manga-style outlines (Canny)
-    gray_for_edges = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray_for_edges = cv2.GaussianBlur(gray_for_edges, (5, 5), 1.0)
-    edges = cv2.Canny(gray_for_edges, 30, 100)
+    # Detect edges (full-res) for strategies that need it
+    edge_map = _detect_edge_map(img)
 
-    #    c. Overlay outlines softly (not full black, semi-transparent)
-    edge_mask = (edges > 0).astype(np.float32) * 0.5  # 50% opacity
-    img_f = img.astype(np.float32)
-    for c in range(3):
-        img_f[:, :, c] *= 1.0 - edge_mask
-    img = img_f.astype(np.uint8)
+    if outline_strategy == "edge-overlay":
+        #    b/c. Edge overlay (existing behavior): darken edges 50% on full-res
+        edge_mask = edge_map * 0.5  # 50% opacity
+        img_f = img.astype(np.float32)
+        for c in range(3):
+            img_f[:, :, c] *= 1.0 - edge_mask
+        img = img_f.astype(np.uint8)
 
     #    d. Final blur to blend
     img = cv2.GaussianBlur(img, (3, 3), 0.8)
@@ -106,9 +123,21 @@ def apply_kizuato_style(
     small_h = int(orig_h * scale)
     small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
 
+    # Downscale edge map for strategies that operate at low-res
+    if outline_strategy != "edge-overlay":
+        edge_map_small = cv2.resize(
+            edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA
+        ).astype(np.float32)
+
     # 2. Convert to grayscale, then shape smoother gradients before visible grid dithering.
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
     gray = _smooth_tonal_gradient(gray, pre_blur_sigma, glow_strength)
+
+    if outline_strategy == "edge-bias":
+        gray = np.clip(gray - edge_map_small * 0.2, 0, 1)
+
+    if outline_strategy == "threshold-shift":
+        gray = np.clip(gray - edge_map_small * 0.15, 0, 1)
 
     # 3. Ordered dithering with Bayer matrix
     h, w = gray.shape
@@ -117,6 +146,10 @@ def apply_kizuato_style(
     # Dither strength varies: full in darks, fades out in highlights
     # Bright areas become smooth gradient, dark areas show screen tone
     dither_strength = np.clip(1.0 - gray * 1.15, 0, 1)  # 0 at bright, 1 at dark
+
+    if outline_strategy == "dither-density":
+        dither_strength = np.clip(dither_strength + edge_map_small * 0.6, 0, 1)
+
     dithered = gray + (bayer - 0.5) / levels * dither_strength
     dithered = np.clip(dithered, 0, 1)
     dithered = np.floor(dithered * levels) / levels
@@ -137,6 +170,73 @@ def apply_kizuato_style(
     result = cv2.resize(result, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
 
     cv2.imwrite(str(output_path), result)
+
+
+def apply_comparison(
+    input_path: Path,
+    output_dir: Path,
+    tint: str = "green",
+    levels: int = 16,
+    pre_blur_sigma: float = 1.4,
+    glow_strength: float = 0.18,
+) -> list[Path]:
+    """Run all 4 outline strategies and save individual images plus a collage.
+
+    Args:
+        input_path: Source image path.
+        output_dir: Directory to write outputs.
+        tint: Color tint preset.
+        levels: Dithering quantization levels.
+        pre_blur_sigma: Gaussian blur sigma before dithering.
+        glow_strength: Glow blend ratio before dithering.
+
+    Returns:
+        List of output paths: 4 individual images + 1 collage (5 elements).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = input_path.stem
+
+    individual_paths: list[Path] = []
+    images: list[np.ndarray] = []
+
+    for strategy in OUTLINE_STRATEGIES:
+        out_path = output_dir / f"{stem}_compare_{strategy}.png"
+        apply_kizuato_style(
+            input_path,
+            out_path,
+            tint=tint,
+            levels=levels,
+            pre_blur_sigma=pre_blur_sigma,
+            glow_strength=glow_strength,
+            outline_strategy=strategy,
+        )
+        individual_paths.append(out_path)
+        img = cv2.imread(str(out_path))
+        images.append(img)
+
+    # Build collage: align all images to the same height then hstack
+    target_h = images[0].shape[0]
+    resized = []
+    for img in images:
+        h, w = img.shape[:2]
+        if h != target_h:
+            scale = target_h / h
+            img = cv2.resize(img, (int(w * scale), target_h), interpolation=cv2.INTER_AREA)
+        resized.append(img)
+
+    collage = np.hstack(resized)
+
+    # Limit collage width to 4000px
+    max_w = 4000
+    col_h, col_w = collage.shape[:2]
+    if col_w > max_w:
+        scale = max_w / col_w
+        collage = cv2.resize(collage, (max_w, int(col_h * scale)), interpolation=cv2.INTER_AREA)
+
+    collage_path = output_dir / f"{stem}_compare.png"
+    cv2.imwrite(str(collage_path), collage)
+
+    return [*individual_paths, collage_path]
 
 
 # Three-tone presets: (bright_bgr, dark_bgr, outline_bgr)
