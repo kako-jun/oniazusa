@@ -121,4 +121,29 @@ oniazusa photo.jpg --compare
 
 Works in both single-file and directory (batch) modes. When `--compare` and `--outline-strategy` are both specified, `--compare` takes precedence.
 
+## Preprocess modes
+
+Available via `--preprocess` (kizuato and three-tone modes). Applied before the main pipeline.
+
+| Mode | Description |
+|---|---|
+| `none` | (default) Existing bilateral x3 pipeline. Backward compatible. |
+| `denoise` | `fastNlMeansDenoisingColored` then bilateral x3. Reduces noise before flattening. |
+| `flatten` | Stronger bilateral (sigmaColor=150) x3 for texture suppression. |
+| `illustration` | Bilateral x3 then CLAHE on LAB-L channel for contrast enhancement. |
+
+### `--compare-preprocess`
+
+Run all 4 preprocess modes in one pass and save both individual images and a side-by-side collage.
+Always uses kizuato mode with edge-overlay outline strategy.
+
+```bash
+oniazusa photo.jpg --compare-preprocess
+# outputs: photo_preprocess_none.png, photo_preprocess_denoise.png,
+#          photo_preprocess_flatten.png, photo_preprocess_illustration.png,
+#          photo_preprocess_compare.png  (horizontal collage, max 4000px wide)
+```
+
+When `--compare-preprocess` is specified, it takes precedence over `--preprocess` and `--compare`.
+
 <!-- Update this section with the chosen strategy after visual review. -->

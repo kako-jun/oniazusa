@@ -6,11 +6,14 @@ import pytest
 
 from oniazusa.filter import (
     OUTLINE_STRATEGIES,
+    PREPROCESS_MODES,
     PRESETS,
     THREE_TONE_PRESETS,
     _detect_edge_map,
+    _preprocess,
     _smooth_tonal_gradient,
     apply_comparison,
+    apply_comparison_preprocess,
     apply_kizuato_style,
     apply_three_tone,
 )
@@ -363,6 +366,225 @@ def test_apply_comparison_collage_width_le_4000(tmp_path: Path) -> None:
     collage = cv2.imread(str(paths[-1]))
     assert collage is not None
     assert collage.shape[1] <= 4000
+
+
+# ---------------------------------------------------------------------------
+# _preprocess
+# ---------------------------------------------------------------------------
+
+
+def _make_bgr_image(h: int = 32, w: int = 32) -> np.ndarray:
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    img[:, : w // 2] = (40, 80, 180)
+    img[:, w // 2 :] = (120, 200, 80)
+    return img
+
+
+def test_preprocess_none_preserves_shape_and_dtype() -> None:
+    img = _make_bgr_image()
+    result = _preprocess(img, "none")
+    assert result.shape == img.shape
+    assert result.dtype == np.uint8
+
+
+def test_preprocess_denoise_preserves_shape_and_dtype() -> None:
+    img = _make_bgr_image()
+    result = _preprocess(img, "denoise")
+    assert result.shape == img.shape
+    assert result.dtype == np.uint8
+
+
+def test_preprocess_flatten_preserves_shape_and_dtype() -> None:
+    img = _make_bgr_image()
+    result = _preprocess(img, "flatten")
+    assert result.shape == img.shape
+    assert result.dtype == np.uint8
+
+
+def test_preprocess_illustration_preserves_shape_and_dtype() -> None:
+    img = _make_bgr_image()
+    result = _preprocess(img, "illustration")
+    assert result.shape == img.shape
+    assert result.dtype == np.uint8
+
+
+def test_preprocess_does_not_mutate_input_array() -> None:
+    img = _make_bgr_image()
+    original = img.copy()
+    _preprocess(img, "flatten")
+    assert np.array_equal(img, original)
+
+
+def test_preprocess_unknown_mode_raises_value_error() -> None:
+    # 仕様: "unknown" のような無効モードは ValueError を raise する
+    img = _make_bgr_image()
+    with pytest.raises(ValueError, match="Unknown preprocess mode"):
+        _preprocess(img, "unknown")
+
+
+def test_preprocess_illustration_uint8_range() -> None:
+    # LAB→BGR ラウンドトリップ後も全チャンネルが [0, 255] に収まる
+    img = _make_bgr_image()
+    result = _preprocess(img, "illustration")
+    assert int(result.min()) >= 0
+    assert int(result.max()) <= 255
+
+
+def test_preprocess_1x1_all_modes_do_not_crash() -> None:
+    img = np.full((1, 1, 3), 128, dtype=np.uint8)
+    for mode in PREPROCESS_MODES:
+        result = _preprocess(img, mode)
+        assert result.shape == (1, 1, 3)
+        assert result.dtype == np.uint8
+
+
+def test_preprocess_modes_constant_contains_four_elements() -> None:
+    assert len(PREPROCESS_MODES) == 4
+    assert set(PREPROCESS_MODES) == {"none", "denoise", "flatten", "illustration"}
+
+
+# ---------------------------------------------------------------------------
+# apply_kizuato_style — preprocess 引数
+# ---------------------------------------------------------------------------
+
+
+def test_apply_kizuato_style_preprocess_none_matches_default(tmp_path: Path) -> None:
+    # preprocess="none" はデフォルト呼び出し（preprocess="none"）と同一出力を返す
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_default = tmp_path / "default.png"
+    out_none = tmp_path / "none.png"
+    apply_kizuato_style(input_path, out_default)
+    apply_kizuato_style(input_path, out_none, preprocess="none")
+
+    r_default = cv2.imread(str(out_default))
+    r_none = cv2.imread(str(out_none))
+    assert r_default is not None
+    assert r_none is not None
+    assert np.array_equal(r_default, r_none)
+
+
+def test_apply_kizuato_style_all_preprocess_modes_produce_output(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    for mode in PREPROCESS_MODES:
+        out = tmp_path / f"out_{mode}.png"
+        apply_kizuato_style(input_path, out, preprocess=mode)
+        assert out.exists(), f"preprocess={mode!r} did not produce output"
+
+
+# ---------------------------------------------------------------------------
+# apply_comparison_preprocess
+# ---------------------------------------------------------------------------
+
+
+def test_apply_comparison_preprocess_returns_five_paths(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    assert len(paths) == 5
+
+
+def test_apply_comparison_preprocess_all_files_exist(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    for p in paths:
+        assert p.exists(), f"{p} does not exist"
+
+
+def test_apply_comparison_preprocess_individual_names_contain_mode(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    individual = paths[:4]
+    for mode, path in zip(PREPROCESS_MODES, individual):
+        assert mode in path.name, f"{mode!r} not in {path.name}"
+
+
+def test_apply_comparison_preprocess_collage_name(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    collage = paths[-1]
+    assert collage.name == "input_preprocess_compare.png"
+
+
+def test_apply_comparison_preprocess_collage_width_le_4000(tmp_path: Path) -> None:
+    # 4000px 以下クリップが働くことを確認（小画像でも width ≤ 4000 であること）
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    collage = cv2.imread(str(paths[-1]))
+    assert collage is not None
+    assert collage.shape[1] <= 4000
+
+
+def test_apply_comparison_preprocess_creates_output_dir_automatically(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "nonexistent" / "nested"
+    assert not out_dir.exists()
+    apply_comparison_preprocess(input_path, out_dir)
+    assert out_dir.exists()
+
+
+def test_apply_comparison_preprocess_hstack_integer_rounding_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    # 奇数サイズ画像でも hstack が整数丸め差で失敗しないことを確認
+    img = np.zeros((31, 47, 3), dtype=np.uint8)
+    img[:, :] = (60, 120, 220)
+    input_path = tmp_path / "odd.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    assert len(paths) == 5
+
+
+def test_apply_comparison_preprocess_1x1_does_not_crash(tmp_path: Path) -> None:
+    # 1x1 画像は scale=0.12 でダウンスケール後に 0px になるため apply_kizuato_style が
+    # OpenCV の Assertion で失敗する。これは既知の実装制限として文書化する。
+    img = np.full((1, 1, 3), 128, dtype=np.uint8)
+    input_path = tmp_path / "tiny.png"
+    _write_image(input_path, img)
+
+    with pytest.raises(cv2.error):
+        apply_comparison_preprocess(input_path, tmp_path / "out")
+
+
+def test_apply_comparison_preprocess_collage_is_wider_than_individual(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison_preprocess(input_path, tmp_path / "out")
+    individual = cv2.imread(str(paths[0]))
+    collage = cv2.imread(str(paths[-1]))
+    assert individual is not None
+    assert collage is not None
+    assert collage.shape[1] > individual.shape[1]
+
+
+# ---------------------------------------------------------------------------
+# apply_comparison_collage_is_wider_than_individual (original) — kept below
+# ---------------------------------------------------------------------------
 
 
 def test_apply_comparison_collage_is_wider_than_individual(tmp_path: Path) -> None:

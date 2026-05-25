@@ -169,3 +169,116 @@ def test_cli_compare_overrides_outline_strategy(tmp_path: Path) -> None:
 
     mock_cmp.assert_called_once()
     mock_kiz.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# --preprocess / --compare-preprocess CLI tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_preprocess_passed_to_apply_kizuato_style(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    with patch("oniazusa.cli.apply_kizuato_style") as mock_apply:
+        argv = ["oniazusa", str(input_path), "--preprocess", "flatten"]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_apply.assert_called_once()
+    _, kwargs = mock_apply.call_args
+    assert kwargs.get("preprocess") == "flatten"
+
+
+def test_cli_compare_preprocess_calls_apply_comparison_preprocess(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with patch("oniazusa.cli.apply_comparison_preprocess", return_value=fake_paths) as mock_cp:
+        argv = ["oniazusa", str(input_path), "--compare-preprocess", "-o", str(out_dir)]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cp.assert_called_once()
+
+
+def test_cli_compare_preprocess_takes_precedence_over_preprocess(tmp_path: Path) -> None:
+    # --compare-preprocess と --preprocess 同時指定では compare_preprocess が優先
+    img = _make_edge_image()
+    input_path = tmp_path / "photo.png"
+    _write_image(input_path, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with (
+        patch("oniazusa.cli.apply_comparison_preprocess", return_value=fake_paths) as mock_cp,
+        patch("oniazusa.cli.apply_kizuato_style") as mock_kiz,
+    ):
+        argv = [
+            "oniazusa",
+            str(input_path),
+            "--compare-preprocess",
+            "--preprocess",
+            "flatten",
+            "-o",
+            str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cp.assert_called_once()
+    mock_kiz.assert_not_called()
+
+
+def test_cli_compare_preprocess_before_compare_in_directory_mode(tmp_path: Path) -> None:
+    # --compare-preprocess と --compare 同時指定では compare_preprocess が先（directory mode）
+    in_dir = tmp_path / "imgs"
+    in_dir.mkdir()
+    img = np.full((24, 24, 3), 200, dtype=np.uint8)
+    _write_image(in_dir / "a.png", img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with (
+        patch("oniazusa.cli.apply_comparison_preprocess", return_value=fake_paths) as mock_cp,
+        patch("oniazusa.cli.apply_comparison") as mock_cmp,
+    ):
+        argv = [
+            "oniazusa",
+            str(in_dir),
+            "--compare-preprocess",
+            "--compare",
+            "-o",
+            str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    mock_cp.assert_called()
+    mock_cmp.assert_not_called()
+
+
+def test_cli_preprocess_directory_mode_applies_to_all_files(tmp_path: Path) -> None:
+    # ディレクトリ入力 + --compare-preprocess で全ファイルに apply_comparison_preprocess が呼ばれる
+    in_dir = tmp_path / "imgs"
+    in_dir.mkdir()
+    for name in ["a.png", "b.png", "c.png"]:
+        img = np.full((24, 24, 3), 200, dtype=np.uint8)
+        _write_image(in_dir / name, img)
+
+    out_dir = tmp_path / "out"
+    fake_paths = [out_dir / f"x_{i}.png" for i in range(5)]
+
+    with patch("oniazusa.cli.apply_comparison_preprocess", return_value=fake_paths) as mock_cp:
+        argv = ["oniazusa", str(in_dir), "--compare-preprocess", "-o", str(out_dir)]
+        with patch.object(sys, "argv", argv):
+            main()
+
+    assert mock_cp.call_count == 3

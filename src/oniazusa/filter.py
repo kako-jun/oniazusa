@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 OUTLINE_STRATEGIES = ["edge-overlay", "edge-bias", "dither-density", "threshold-shift"]
+PREPROCESS_MODES = ["none", "denoise", "flatten", "illustration"]
 
 # 8x8 Bayer matrix for ordered dithering (screen tone pattern)
 BAYER_8X8 = (
@@ -34,6 +35,40 @@ PRESETS = {
     "blue": (240, 215, 195),  # barely-blue white paper
     "purple": (100, 60, 80),  # night purple (the only dark one)
 }
+
+
+def _preprocess(img: np.ndarray, mode: str) -> np.ndarray:
+    """Apply a preprocessing stage before the main pipeline.
+
+    Args:
+        img: BGR uint8 image.
+        mode: One of "none", "denoise", "flatten", "illustration".
+
+    Returns:
+        Preprocessed BGR uint8 image.
+    """
+    if mode == "denoise":
+        img = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
+        for _ in range(3):
+            img = cv2.bilateralFilter(img, 9, 75, 75)
+    elif mode == "flatten":
+        for _ in range(3):
+            img = cv2.bilateralFilter(img, 9, 150, 150)
+    elif mode == "illustration":
+        for _ in range(3):
+            img = cv2.bilateralFilter(img, 9, 75, 75)
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_ch, a_ch, b_ch = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l_ch = clahe.apply(l_ch)
+        lab = cv2.merge([l_ch, a_ch, b_ch])
+        img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    elif mode == "none":
+        for _ in range(3):
+            img = cv2.bilateralFilter(img, 9, 75, 75)
+    else:
+        raise ValueError(f"Unknown preprocess mode: {mode!r}. Choose from {PREPROCESS_MODES}")
+    return img
 
 
 def _detect_edge_map(img: np.ndarray) -> np.ndarray:
@@ -83,6 +118,7 @@ def apply_kizuato_style(
     pre_blur_sigma: float = 1.4,
     glow_strength: float = 0.18,
     outline_strategy: str = "edge-overlay",
+    preprocess: str = "none",
 ) -> None:
     """Transform a photo into a Kizuato-style visual novel background.
 
@@ -101,9 +137,7 @@ def apply_kizuato_style(
     orig_h, orig_w = img.shape[:2]
 
     # 1. Pre-process: photo to manga/illustration-like
-    #    a. Bilateral filter x3: flatten textures, keep edges (cel-shading)
-    for _ in range(3):
-        img = cv2.bilateralFilter(img, 9, 75, 75)
+    img = _preprocess(img, preprocess)
 
     # Detect edges (full-res) for all strategies
     edge_map = _detect_edge_map(img)
@@ -242,6 +276,77 @@ def apply_comparison(
     return [*individual_paths, collage_path]
 
 
+def apply_comparison_preprocess(
+    input_path: Path,
+    output_dir: Path,
+    tint: str = "green",
+    levels: int = 16,
+    pre_blur_sigma: float = 1.4,
+    glow_strength: float = 0.18,
+) -> list[Path]:
+    """Run all 4 preprocess modes and save individual images plus a collage.
+
+    Note: Always uses kizuato mode; outline_strategy is fixed to edge-overlay.
+
+    Args:
+        input_path: Source image path.
+        output_dir: Directory to write outputs.
+        tint: Color tint preset.
+        levels: Dithering quantization levels.
+        pre_blur_sigma: Gaussian blur sigma before dithering.
+        glow_strength: Glow blend ratio before dithering.
+
+    Returns:
+        List of output paths: 4 individual images + 1 collage (5 elements).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = input_path.stem
+
+    individual_paths: list[Path] = []
+    images: list[np.ndarray] = []
+
+    for mode in PREPROCESS_MODES:
+        out_path = output_dir / f"{stem}_preprocess_{mode}.png"
+        apply_kizuato_style(
+            input_path,
+            out_path,
+            tint=tint,
+            levels=levels,
+            pre_blur_sigma=pre_blur_sigma,
+            glow_strength=glow_strength,
+            preprocess=mode,
+        )
+        individual_paths.append(out_path)
+        img = cv2.imread(str(out_path))
+        images.append(img)
+
+    # Build collage: align all images to the same height then hstack
+    target_h = images[0].shape[0]
+    resized = []
+    for img in images:
+        h, w = img.shape[:2]
+        if h != target_h:
+            row_scale = target_h / h
+            img = cv2.resize(img, (int(w * row_scale), target_h), interpolation=cv2.INTER_AREA)
+        resized.append(img)
+
+    collage = np.hstack(resized)
+
+    # Limit collage width to 4000px
+    max_w = 4000
+    col_h, col_w = collage.shape[:2]
+    if col_w > max_w:
+        collage_scale = max_w / col_w
+        collage = cv2.resize(
+            collage, (max_w, int(col_h * collage_scale)), interpolation=cv2.INTER_AREA
+        )
+
+    collage_path = output_dir / f"{stem}_preprocess_compare.png"
+    cv2.imwrite(str(collage_path), collage)
+
+    return [*individual_paths, collage_path]
+
+
 # Three-tone presets: (bright_bgr, dark_bgr, outline_bgr)
 THREE_TONE_PRESETS: dict[
     str,
@@ -262,6 +367,7 @@ def apply_three_tone(
     tint: str = "green",
     pre_blur_sigma: float = 1.4,
     glow_strength: float = 0.18,
+    preprocess: str = "none",
 ) -> None:
     """Transform a photo into a 3-tone visual novel background.
 
@@ -285,8 +391,7 @@ def apply_three_tone(
     orig_h, orig_w = img.shape[:2]
 
     # 1. Pre-process: bilateral filter x3, edge overlay, final blur
-    for _ in range(3):
-        img = cv2.bilateralFilter(img, 9, 75, 75)
+    img = _preprocess(img, preprocess)
 
     edge_map = _detect_edge_map(img)
     edge_mask = edge_map * 0.5
