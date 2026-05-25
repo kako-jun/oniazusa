@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 OUTLINE_STRATEGIES = ["edge-overlay", "edge-bias", "dither-density", "threshold-shift"]
+THREE_TONE_STRATEGIES = ["A", "B", "C", "D", "E"]
 PREPROCESS_MODES = ["none", "denoise", "flatten", "illustration"]
 
 # 8x8 Bayer matrix for ordered dithering (screen tone pattern)
@@ -368,6 +369,7 @@ def apply_three_tone(
     pre_blur_sigma: float = 1.4,
     glow_strength: float = 0.18,
     preprocess: str = "none",
+    strategy: str = "A",
 ) -> None:
     """Transform a photo into a 3-tone visual novel background.
 
@@ -382,7 +384,14 @@ def apply_three_tone(
     5. Ordered dithering only in the transition bands (threshold ±0.12)
     6. Map each level to the preset BGR colors
     7. Nearest-neighbor upscale to restore pixel structure
+
+    Args:
+        strategy: One of THREE_TONE_STRATEGIES (A–E). Controls edge treatment approach.
     """
+    if strategy not in THREE_TONE_STRATEGIES:
+        msg = f"Unknown strategy: {strategy!r}. Choose from {THREE_TONE_STRATEGIES}"
+        raise ValueError(msg)
+
     img = cv2.imread(str(input_path))
     if img is None:
         msg = f"Could not read image: {input_path}"
@@ -394,11 +403,24 @@ def apply_three_tone(
     img = _preprocess(img, preprocess)
 
     edge_map = _detect_edge_map(img)
-    edge_mask = edge_map * 0.5
-    img_f = img.astype(np.float32)
-    for c in range(3):
-        img_f[:, :, c] *= 1.0 - edge_mask
-    img = img_f.astype(np.uint8)
+
+    if strategy == "A":
+        # A (baseline): edge-overlay on full-res
+        edge_mask = edge_map * 0.5
+        img_f = img.astype(np.float32)
+        for c in range(3):
+            img_f[:, :, c] *= 1.0 - edge_mask
+        img = img_f.astype(np.uint8)
+    elif strategy == "B":
+        # B: same edge-overlay as A; outline_bgr forced on edge pixels post-quantization
+        edge_mask = edge_map * 0.5
+        img_f = img.astype(np.float32)
+        for c in range(3):
+            img_f[:, :, c] *= 1.0 - edge_mask
+        img = img_f.astype(np.uint8)
+    elif strategy in ("C", "D", "E"):
+        # C/D/E: no full-res edge overlay; edge effect applied differently below
+        pass
 
     img = cv2.GaussianBlur(img, (3, 3), 0.8)
 
@@ -408,9 +430,18 @@ def apply_three_tone(
     small_h = int(orig_h * scale)
     small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
 
+    # Downscale edge map for low-res strategies
+    edge_map_small = cv2.resize(edge_map, (small_w, small_h), interpolation=cv2.INTER_AREA).astype(
+        np.float32
+    )
+
     # 3. Grayscale + smooth tonal gradient
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
     gray = _smooth_tonal_gradient(gray, pre_blur_sigma, glow_strength)
+
+    # Strategy C: darken grayscale near edges before quantization
+    if strategy == "C":
+        gray = np.clip(gray - edge_map_small * 0.3, 0.0, 1.0)
 
     # 4 & 5. 3-level quantization with ordered dithering in transition bands
     t1, t2 = 0.45, 0.72
@@ -419,17 +450,30 @@ def apply_three_tone(
     h, w = gray.shape
     bayer = np.tile(BAYER_8X8, (h // 8 + 1, w // 8 + 1))[:h, :w]
 
+    # Strategy D: amplify dither band near edges
+    if strategy == "D":
+        band_arr = band * (1.0 + edge_map_small * 1.5)
+    else:
+        band_arr = np.full_like(gray, band)
+
+    # Strategy E: locally shift thresholds near edges
+    if strategy == "E":
+        t1_local = t1 - edge_map_small * 0.2
+        t2_local = t2 - edge_map_small * 0.2
+    else:
+        t1_local = np.full_like(gray, t1)
+        t2_local = np.full_like(gray, t2)
+
     # Build a blended gray that uses dithering only in the ±band zones
-    # Outside the bands, value is deterministic (no dither noise)
-    dithered = gray + (bayer - 0.5) * band
+    dithered = gray + (bayer - 0.5) * band_arr
 
     # Blend factor: 1.0 inside transition band, 0.0 far from threshold
-    def _band_weight(g: np.ndarray, threshold: float) -> np.ndarray:
+    def _band_weight(g: np.ndarray, threshold: np.ndarray, b: np.ndarray) -> np.ndarray:
         dist = np.abs(g - threshold)
-        return np.clip(1.0 - dist / band, 0.0, 1.0)
+        return np.clip(1.0 - dist / b, 0.0, 1.0)
 
-    w1 = _band_weight(gray, t1)
-    w2 = _band_weight(gray, t2)
+    w1 = _band_weight(gray, t1_local, band_arr)
+    w2 = _band_weight(gray, t2_local, band_arr)
     blend = np.clip(w1 + w2, 0.0, 1.0)
     effective = gray * (1.0 - blend) + dithered * blend
 
@@ -437,9 +481,16 @@ def apply_three_tone(
     bright_bgr, dark_bgr, outline_bgr = THREE_TONE_PRESETS.get(tint, THREE_TONE_PRESETS["green"])
 
     result = np.zeros((h, w, 3), dtype=np.uint8)
-    bright_mask = effective >= t2
-    dark_mask = (effective >= t1) & ~bright_mask
+    bright_mask = effective >= t2_local
+    dark_mask = (effective >= t1_local) & ~bright_mask
     outline_mask = ~bright_mask & ~dark_mask
+
+    # Strategy B: force outline_bgr on Canny-edge pixels
+    if strategy == "B":
+        edge_bool = edge_map_small > 0.5
+        outline_mask = outline_mask | edge_bool
+        bright_mask = bright_mask & ~edge_bool
+        dark_mask = dark_mask & ~edge_bool
 
     for c in range(3):
         result[:, :, c] = (
@@ -450,3 +501,72 @@ def apply_three_tone(
     result = cv2.resize(result, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
 
     cv2.imwrite(str(output_path), result)
+
+
+def apply_comparison_three_tone_strategies(
+    input_path: Path,
+    output_dir: Path,
+    tint: str = "green",
+    pre_blur_sigma: float = 1.4,
+    glow_strength: float = 0.18,
+    preprocess: str = "none",
+) -> list[Path]:
+    """Run all 5 three-tone strategy candidates and save individual images plus a collage.
+
+    Args:
+        input_path: Source image path.
+        output_dir: Directory to write outputs.
+        tint: Color tint preset.
+        pre_blur_sigma: Gaussian blur sigma before dithering.
+        glow_strength: Glow blend ratio before dithering.
+        preprocess: Preprocessing mode.
+
+    Returns:
+        List of output paths: 5 individual images + 1 collage (6 elements).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = input_path.stem
+
+    individual_paths: list[Path] = []
+    images: list[np.ndarray] = []
+
+    for s in THREE_TONE_STRATEGIES:
+        out_path = output_dir / f"{stem}_strategy_{s}.png"
+        apply_three_tone(
+            input_path,
+            out_path,
+            tint=tint,
+            pre_blur_sigma=pre_blur_sigma,
+            glow_strength=glow_strength,
+            preprocess=preprocess,
+            strategy=s,
+        )
+        individual_paths.append(out_path)
+        img = cv2.imread(str(out_path))
+        images.append(img)
+
+    # Build collage: align all images to the same height then hstack
+    target_h = images[0].shape[0]
+    resized = []
+    for img in images:
+        h, w = img.shape[:2]
+        if h != target_h:
+            row_scale = target_h / h
+            img = cv2.resize(img, (int(w * row_scale), target_h), interpolation=cv2.INTER_AREA)
+        resized.append(img)
+
+    collage = np.hstack(resized)
+
+    # Limit collage width to 4000px
+    max_w = 4000
+    col_h, col_w = collage.shape[:2]
+    if col_w > max_w:
+        collage_scale = max_w / col_w
+        collage = cv2.resize(
+            collage, (max_w, int(col_h * collage_scale)), interpolation=cv2.INTER_AREA
+        )
+
+    collage_path = output_dir / f"{stem}_strategy_compare.png"
+    cv2.imwrite(str(collage_path), collage)
+
+    return [*individual_paths, collage_path]
