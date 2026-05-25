@@ -4,7 +4,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from oniazusa.filter import PRESETS, apply_kizuato_style, apply_three_tone
+from oniazusa.filter import (
+    OUTLINE_STRATEGIES,
+    PRESETS,
+    apply_comparison,
+    apply_kizuato_style,
+    apply_three_tone,
+)
 
 
 def main() -> None:
@@ -45,6 +51,19 @@ def main() -> None:
         choices=["kizuato", "three-tone"],
         help="Processing mode (default: kizuato)",
     )
+    parser.add_argument(
+        "--outline-strategy",
+        default="edge-overlay",
+        choices=OUTLINE_STRATEGIES,
+        dest="outline_strategy",
+        help="Outline rendering strategy for kizuato mode (default: edge-overlay)",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Run all 4 outline strategies and output individual images plus a collage"
+        " (kizuato mode only)",
+    )
 
     args = parser.parse_args()
 
@@ -66,6 +85,18 @@ def main() -> None:
                     pre_blur_sigma=args.pre_blur,
                     glow_strength=args.glow,
                 )
+                print(f"{f.name} -> {out_path.name}")
+            elif args.compare:
+                paths = apply_comparison(
+                    f,
+                    out_dir,
+                    tint=args.tint,
+                    levels=args.levels,
+                    pre_blur_sigma=args.pre_blur,
+                    glow_strength=args.glow,
+                )
+                for p in paths:
+                    print(f"{f.name} -> {p.name}")
             else:
                 out_path = out_dir / f"{f.stem}_kizuato.png"
                 apply_kizuato_style(
@@ -75,8 +106,9 @@ def main() -> None:
                     levels=args.levels,
                     pre_blur_sigma=args.pre_blur,
                     glow_strength=args.glow,
+                    outline_strategy=args.outline_strategy,
                 )
-            print(f"{f.name} -> {out_path.name}")
+                print(f"{f.name} -> {out_path.name}")
     else:
         if args.mode == "three-tone":
             out_path = args.output or args.input.with_stem(f"{args.input.stem}_three_tone")
@@ -87,6 +119,19 @@ def main() -> None:
                 pre_blur_sigma=args.pre_blur,
                 glow_strength=args.glow,
             )
+            print(f"{args.input.name} -> {out_path.name}")
+        elif args.compare:
+            out_dir = args.output or args.input.parent / "oniazusa_out"
+            paths = apply_comparison(
+                args.input,
+                out_dir,
+                tint=args.tint,
+                levels=args.levels,
+                pre_blur_sigma=args.pre_blur,
+                glow_strength=args.glow,
+            )
+            for p in paths:
+                print(f"{args.input.name} -> {p.name}")
         else:
             out_path = args.output or args.input.with_stem(f"{args.input.stem}_kizuato")
             apply_kizuato_style(
@@ -96,8 +141,9 @@ def main() -> None:
                 levels=args.levels,
                 pre_blur_sigma=args.pre_blur,
                 glow_strength=args.glow,
+                outline_strategy=args.outline_strategy,
             )
-        print(f"{args.input.name} -> {out_path.name}")
+            print(f"{args.input.name} -> {out_path.name}")
 
 
 if __name__ == "__main__":

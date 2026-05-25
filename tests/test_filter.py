@@ -5,9 +5,12 @@ import numpy as np
 import pytest
 
 from oniazusa.filter import (
+    OUTLINE_STRATEGIES,
     PRESETS,
     THREE_TONE_PRESETS,
+    _detect_edge_map,
     _smooth_tonal_gradient,
+    apply_comparison,
     apply_kizuato_style,
     apply_three_tone,
 )
@@ -186,19 +189,190 @@ def test_apply_three_tone_pixel_dark_zone(tmp_path: Path) -> None:
     bright_bgr = THREE_TONE_PRESETS["green"][0]
     outline_bgr = THREE_TONE_PRESETS["green"][2]
     # dark_bgr が最多数のピクセルを占める（前処理で一様画像は中間帯に収まる）
-    n_dark = int(np.sum(
-        (result[:, :, 0] == dark_bgr[0])
-        & (result[:, :, 1] == dark_bgr[1])
-        & (result[:, :, 2] == dark_bgr[2])
-    ))
-    n_bright = int(np.sum(
-        (result[:, :, 0] == bright_bgr[0])
-        & (result[:, :, 1] == bright_bgr[1])
-        & (result[:, :, 2] == bright_bgr[2])
-    ))
-    n_outline = int(np.sum(
-        (result[:, :, 0] == outline_bgr[0])
-        & (result[:, :, 1] == outline_bgr[1])
-        & (result[:, :, 2] == outline_bgr[2])
-    ))
+    n_dark = int(
+        np.sum(
+            (result[:, :, 0] == dark_bgr[0])
+            & (result[:, :, 1] == dark_bgr[1])
+            & (result[:, :, 2] == dark_bgr[2])
+        )
+    )
+    n_bright = int(
+        np.sum(
+            (result[:, :, 0] == bright_bgr[0])
+            & (result[:, :, 1] == bright_bgr[1])
+            & (result[:, :, 2] == bright_bgr[2])
+        )
+    )
+    n_outline = int(
+        np.sum(
+            (result[:, :, 0] == outline_bgr[0])
+            & (result[:, :, 1] == outline_bgr[1])
+            & (result[:, :, 2] == outline_bgr[2])
+        )
+    )
     assert n_dark >= n_bright and n_dark >= n_outline
+
+
+def _make_edge_image() -> np.ndarray:
+    """100x100 の黒背景に白矩形を描いた画像（明確なエッジあり）。"""
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    img[20:80, 20:80] = 255
+    return img
+
+
+# ---------------------------------------------------------------------------
+# _detect_edge_map
+# ---------------------------------------------------------------------------
+
+
+def test_detect_edge_map_returns_float32() -> None:
+    img = _make_edge_image()
+    edge_map = _detect_edge_map(img)
+    assert edge_map.dtype == np.float32
+    assert edge_map.shape == img.shape[:2]
+
+
+def test_detect_edge_map_range() -> None:
+    img = _make_edge_image()
+    edge_map = _detect_edge_map(img)
+    assert float(edge_map.min()) >= 0.0
+    assert float(edge_map.max()) <= 1.0
+
+
+def test_detect_edge_map_detects_edges() -> None:
+    img = _make_edge_image()
+    edge_map = _detect_edge_map(img)
+    assert float(edge_map.max()) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# apply_kizuato_style — outline_strategy
+# ---------------------------------------------------------------------------
+
+
+def test_apply_kizuato_style_default_strategy_is_edge_overlay(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+    _write_image(input_path, img)
+
+    apply_kizuato_style(input_path, output_path)
+    assert output_path.exists()
+
+
+def test_apply_kizuato_style_edge_overlay_matches_default(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    out_default = tmp_path / "default.png"
+    out_explicit = tmp_path / "explicit.png"
+    apply_kizuato_style(input_path, out_default)
+    apply_kizuato_style(input_path, out_explicit, outline_strategy="edge-overlay")
+
+    result_default = cv2.imread(str(out_default))
+    result_explicit = cv2.imread(str(out_explicit))
+    assert result_default is not None
+    assert result_explicit is not None
+    assert np.array_equal(result_default, result_explicit)
+
+
+def test_apply_kizuato_style_all_strategies_produce_output(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    for strategy in OUTLINE_STRATEGIES:
+        out = tmp_path / f"{strategy}.png"
+        apply_kizuato_style(input_path, out, outline_strategy=strategy)
+        assert out.exists(), f"{strategy} did not produce output"
+
+
+def test_apply_kizuato_style_strategies_differ_from_each_other(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    results = {}
+    for strategy in OUTLINE_STRATEGIES:
+        out = tmp_path / f"{strategy}.png"
+        apply_kizuato_style(input_path, out, outline_strategy=strategy)
+        results[strategy] = cv2.imread(str(out))
+
+    strategies = list(results.keys())
+    # Pairwise: every pair of strategies must produce different output
+    from itertools import combinations
+
+    for s1, s2 in combinations(strategies, 2):
+        assert not np.array_equal(results[s1], results[s2]), (
+            f"Strategies '{s1}' and '{s2}' produced identical output"
+        )
+
+
+# ---------------------------------------------------------------------------
+# apply_comparison
+# ---------------------------------------------------------------------------
+
+
+def test_apply_comparison_returns_five_paths(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    assert len(paths) == 5
+
+
+def test_apply_comparison_all_files_exist(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    for p in paths:
+        assert p.exists(), f"{p} does not exist"
+
+
+def test_apply_comparison_individual_names_contain_strategy(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    individual = paths[:4]
+    for strategy, path in zip(OUTLINE_STRATEGIES, individual):
+        assert strategy in path.name, f"{strategy} not in {path.name}"
+
+
+def test_apply_comparison_collage_name(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    collage = paths[-1]
+    assert collage.name == "input_compare.png"
+
+
+def test_apply_comparison_collage_width_le_4000(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    collage = cv2.imread(str(paths[-1]))
+    assert collage is not None
+    assert collage.shape[1] <= 4000
+
+
+def test_apply_comparison_collage_is_wider_than_individual(tmp_path: Path) -> None:
+    img = _make_edge_image()
+    input_path = tmp_path / "input.png"
+    _write_image(input_path, img)
+
+    paths = apply_comparison(input_path, tmp_path / "out")
+    individual = cv2.imread(str(paths[0]))
+    collage = cv2.imread(str(paths[-1]))
+    assert individual is not None
+    assert collage is not None
+    assert collage.shape[1] > individual.shape[1]

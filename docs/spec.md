@@ -96,3 +96,29 @@ The `--levels` option applies only to `kizuato` mode. In `three-tone` mode it is
 
 - directory mode with no supported files exits with status 1
 - unreadable input raises an error
+
+## Outline strategies
+
+Available via `--outline-strategy` (kizuato mode only). Controls how edges are rendered.
+
+| Strategy | Description |
+|---|---|
+| `edge-overlay` | (default) Canny edges darkened 50% and overlaid on the full-resolution image before downscaling. Explicit edge layer. |
+| `edge-bias` | After downscaling, the edge proximity map is subtracted from the grayscale channel (bias −0.2). No separate edge layer. |
+| `dither-density` | Edge proximity amplifies dither strength (+0.6), increasing dot density near edges without changing tone. |
+| `threshold-shift` | Grayscale is shifted darker near edges (−0.15) before quantization, pulling edge-adjacent pixels toward darker tones. |
+
+### `--compare`
+
+Run all 4 strategies in one pass and save both individual images and a side-by-side collage:
+
+```bash
+oniazusa photo.jpg --compare
+# outputs: photo_compare_edge-overlay.png, photo_compare_edge-bias.png,
+#          photo_compare_dither-density.png, photo_compare_threshold-shift.png,
+#          photo_compare.png  (horizontal collage, max 4000px wide)
+```
+
+Works in both single-file and directory (batch) modes. When `--compare` and `--outline-strategy` are both specified, `--compare` takes precedence.
+
+<!-- Update this section with the chosen strategy after visual review. -->
